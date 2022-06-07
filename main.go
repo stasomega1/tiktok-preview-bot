@@ -7,7 +7,6 @@ import (
 	"github.com/Jeffail/gabs/v2"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/avast/retry-go"
-	"github.com/caarlos0/env/v6"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/chromedp"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -24,34 +23,20 @@ var (
 )
 
 const (
-	version = "1.0.7"
+	version = "1.1"
 )
 
 func init() {
 	fmt.Printf("Version: %s\n", version)
 }
 
-type TgBot struct {
-	ApiKey string `env:"BOT_API_KEY"`
-}
-
 func main() {
-	tgBot := TgBot{}
-	err := env.Parse(&tgBot)
-	if err != nil || tgBot.ApiKey == "" {
-		panic(err)
-	}
-	bot, err := tgbotapi.NewBotAPI(tgBot.ApiKey)
+	tgBot, err := NewTgBot()
 	if err != nil {
 		panic(err)
 	}
 
-	updChan := bot.GetUpdatesChan(tgbotapi.UpdateConfig{
-		Offset:         0,
-		Limit:          1,
-		Timeout:        1,
-		AllowedUpdates: nil,
-	})
+	updChan := tgBot.GetUpdates()
 
 	for val := range updChan {
 		if val.Message == nil {
@@ -61,85 +46,31 @@ func main() {
 		r := regexp.MustCompile(`(http|https):\/\/([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])`)
 		url := r.FindString(val.Message.Text)
 		if url != "" && strings.Contains(url, "tiktok.com") {
-			endChan := make(chan interface{})
-			messageIdChan := make(chan int)
-			go SendWaitingMessage(bot, val.FromChat().ID, val.Message.MessageID, endChan, messageIdChan)
-			videoUrl, err := GetVideoUrl(url)
-			if err != nil {
-				fmt.Printf("Message: %s, error: %s\n", val.Message.Text, err)
-				break
-			}
-			fmt.Printf("Текст: %s, ссылка: %s\n", val.Message.Text, videoUrl)
-
-			fileUrl := tgbotapi.FileURL(videoUrl)
-			mediaVideo := tgbotapi.NewInputMediaVideo(fileUrl)
-			mediaText := fmt.Sprintf("Sender: @%s\nOriginal message: %s", val.Message.From.UserName, val.Message.Text)
-			mediaVideo.Caption = mediaText
-			mediaGroup := tgbotapi.NewMediaGroup(val.FromChat().ID, []interface{}{mediaVideo})
-			mediaGroup.DisableNotification = true
-			message, err := bot.SendMediaGroup(mediaGroup)
-			message = message
-
-			deleteMessage := tgbotapi.NewDeleteMessage(val.FromChat().ID, val.Message.MessageID)
-			resp, err := bot.Request(deleteMessage)
-			resp = resp
-
-			endChan <- 1
-			DeleteWaitingMessage(bot, val.FromChat().ID, messageIdChan)
-
-			//m := tgbotapi.NewMessage(val.FromChat().ID, videoUrl)
-			//bot.Send(m)
+			TikTokPreview(tgBot, val, url)
 		}
 	}
 }
 
-func SendWaitingMessage(api *tgbotapi.BotAPI, chatId int64, replyMessageId int, endChan <-chan interface{},
-	postMessageIdChan chan<- int) {
-	text := "Video loading in progress"
-	preMessage := tgbotapi.NewMessage(chatId, text)
-	preMessage.DisableNotification = true
-	preMessage.ReplyToMessageID = replyMessageId
-	postMessage, err := api.Send(preMessage)
+func TikTokPreview(t *TgBot, val tgbotapi.Update, url string) {
+	endChan := make(chan interface{})
+	go t.SendWaitingMessage(val.FromChat().ID, val.Message.MessageID, endChan)
+
+	videoUrl, err := GetVideoUrl(url)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("Message: %s, error: %s\n", val.Message.Text, err)
 		return
 	}
+	fmt.Printf("Message: %s, link: %s\n", val.Message.Text, videoUrl)
 
-	dots := "."
-	for {
-		isBreak := false
-		preEdit := tgbotapi.NewEditMessageText(chatId, postMessage.MessageID, text+dots)
-		time.Sleep(1 * time.Second)
-		_, err = api.Request(preEdit)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		select {
-		case <-endChan:
-			isBreak = true
-		default:
-		}
-
-		if isBreak {
-			break
-		}
-
-		dots = dots + "."
-		if len(dots) > 3 {
-			dots = ""
-		}
-	}
-
-	postMessageIdChan <- postMessage.MessageID
-}
-
-func DeleteWaitingMessage(api *tgbotapi.BotAPI, chatId int64, messageIdChan <-chan int) {
-	preDeleteMessage := tgbotapi.NewDeleteMessage(chatId, <-messageIdChan)
-	_, err := api.Request(preDeleteMessage)
+	err = t.SendVideo(val, videoUrl)
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	endChan <- 1
+
+	deleteMessage := tgbotapi.NewDeleteMessage(val.FromChat().ID, val.Message.MessageID)
+	_, err = t.BotApi.Request(deleteMessage)
 }
 
 func GetVideoUrl(url string) (string, error) {
