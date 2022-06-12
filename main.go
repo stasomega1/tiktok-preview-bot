@@ -53,6 +53,9 @@ func main() {
 
 func TikTokPreview(t *TgBot, val tgbotapi.Update, url string) {
 	endChan := make(chan interface{})
+	defer func() {
+		endChan <- 1
+	}()
 	go t.SendWaitingMessage(val.FromChat().ID, val.Message.MessageID, endChan)
 
 	videoUrl, err := GetVideoUrl(url)
@@ -66,8 +69,6 @@ func TikTokPreview(t *TgBot, val tgbotapi.Update, url string) {
 	if err != nil {
 		fmt.Println(err)
 	}
-
-	endChan <- 1
 
 	deleteMessage := tgbotapi.NewDeleteMessage(val.FromChat().ID, val.Message.MessageID)
 	_, err = t.BotApi.Request(deleteMessage)
@@ -85,7 +86,7 @@ func GetVideoUrl(url string) (string, error) {
 	},
 		retry.Attempts(5))
 	if err != nil {
-		return "", ErrConn
+		return "", fmt.Errorf("%v: %v", ErrConn, err)
 	}
 
 	video := <-resultChan
@@ -181,7 +182,7 @@ func getVideoUrlChrome(url string) (string, error) {
 	r := regexp.MustCompile(`(https):\/\/v16-webapp\.([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])`)
 	result := r.FindAllString(body, 1)
 	if len(result) < 1 {
-		return "", errors.New("ни смог :(")
+		return "", errors.New("video not found")
 	}
 
 	return result[0], nil

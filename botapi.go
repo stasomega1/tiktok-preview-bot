@@ -62,7 +62,7 @@ func (t *TgBot) SendWaitingMessage(chatId int64, replyMessageId int, endChan <-c
 
 	dots := "."
 	for {
-		time.Sleep(1 * time.Second)
+		time.Sleep(1500 * time.Millisecond)
 		preEdit := tgbotapi.NewEditMessageText(chatId, postMessage.MessageID, text+dots)
 		_, err = t.BotApi.Request(preEdit)
 		if err != nil {
