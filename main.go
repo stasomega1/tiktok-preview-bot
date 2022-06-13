@@ -23,7 +23,7 @@ var (
 )
 
 const (
-	version = "1.1"
+	version = "1.2"
 )
 
 func init() {
@@ -46,18 +46,12 @@ func main() {
 		r := regexp.MustCompile(`(http|https):\/\/([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])`)
 		url := r.FindString(val.Message.Text)
 		if url != "" && strings.Contains(url, "tiktok.com") {
-			TikTokPreview(tgBot, val, url)
+			go TikTokPreview(tgBot, val, url)
 		}
 	}
 }
 
 func TikTokPreview(t *TgBot, val tgbotapi.Update, url string) {
-	endChan := make(chan interface{})
-	defer func() {
-		endChan <- 1
-	}()
-	go t.SendWaitingMessage(val.FromChat().ID, val.Message.MessageID, endChan)
-
 	videoUrl, err := GetVideoUrl(url)
 	if err != nil {
 		fmt.Printf("Message: %s, error: %s\n", val.Message.Text, err)
